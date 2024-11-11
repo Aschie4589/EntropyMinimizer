@@ -20,7 +20,7 @@ class EntropyMinimizerTF:
         self.channels_dir = os.path.join(self.parent_dir, "save","data","channels")
         self.vectors_dir = os.path.join(self.parent_dir, "save","data","vectors")
 
-    def initialize(self, channel, dual_channel, epsilon, tolerance=1e15, startvec=None):
+    def initialize(self, channel, epsilon, tolerance=1e15, startvec=None):
         '''
         channel (ChannelTF)                 the channel to run minimization for. channel.apply has to accept a (input_dim,input_dim) tf.tensor as input and return (output_dim, output_tim) tf.tensor as output.
         dual_channel (ChannelTF)            the dual channel. Like channel, but dimensions are swapped. Can be trace preserving but ideally should be unital.
@@ -34,7 +34,7 @@ class EntropyMinimizerTF:
 
         #These are now instances of ChannelTF or SU2ChannelTF. They have an "apply" method, as well as "load" and "save". They also have uuid's.
         self.channel = channel
-        self.dual_channel = dual_channel
+        self.dual_channel = channel.get_dual()
 
         self.tolerance = tolerance
         self.epsilon = epsilon
@@ -43,8 +43,8 @@ class EntropyMinimizerTF:
         self.output_dim = self.channel.output_dim
 
         #These are the functions to apply every time instead
-        self.eps_channel = lambda x: (1-epsilon) * channel.apply(x) + epsilon/self.output_dim * tf.linalg.trace(x) * tf.eye(self.output_dim,dtype=tf.complex128)
-        self.dual_eps_channel = lambda x: (1-epsilon) * dual_channel.apply(x) + epsilon/self.input_dim * tf.linalg.trace(x) * tf.eye(self.input_dim,dtype=tf.complex128)
+        self.eps_channel = lambda x: (1-epsilon) * self.channel.apply(x) + epsilon/self.output_dim * tf.linalg.trace(x) * tf.eye(self.output_dim,dtype=tf.complex128)
+        self.dual_eps_channel = lambda x: (1-epsilon) * self.dual_channel.apply(x) + epsilon/self.input_dim * tf.linalg.trace(x) * tf.eye(self.input_dim,dtype=tf.complex128)
 
         #initialize the starting vector
         if isinstance(startvec,type(None)):

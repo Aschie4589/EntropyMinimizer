@@ -1,6 +1,34 @@
 [
     {
         "id": "SU2ChannelTF:SU2ChannelTF:SU2_J3_K3_M6",
-        "file_path": "save/data/channels/tensor_J3_K3_M6.tfrecord"
+        "file_path": "save/data/channels/kraus-SU2_J3_K3_M6.tfrecord"
+    },
+    {
+        "id": "SU2ChannelTF:SU2ChannelTF:SU2_J3_K20_M23",
+        "file_path": "save/data/channels/kraus-SU2_J3_K20_M23.tfrecord"
+    },
+    {
+        "id": "SU2ChannelTF:SU2ChannelTF:SU2_J20_K3_M23",
+        "file_path": "save/data/channels/kraus-SU2_J20_K3_M23.tfrecord"
+    },
+    {
+        "id": "SU2ChannelTF:SU2ChannelTF:SU2_J20_K100_M120",
+        "file_path": "save/data/channels/kraus-SU2_J20_K100_M120.tfrecord"
+    },
+    {
+        "id": "SU2ChannelTF:SU2ChannelTF:SU2_J100_K20_M120",
+        "file_path": "save/data/channels/kraus-SU2_J100_K20_M120.tfrecord"
+    },
+    {
+        "id": "ChannelTF:ChannelTF:7664b183-f596-43f3-832b-f5dd68c88469",
+        "file_path": "save/data/channels/kraus-7664b183-f596-43f3-832b-f5dd68c88469.tfrecord"
+    },
+    {
+        "id": "SU2ChannelTF:SU2ChannelTF:SU2_J20_K400_M420",
+        "file_path": "save/data/channels/kraus-SU2_J20_K400_M420.tfrecord"
+    },
+    {
+        "id": "SU2ChannelTF:SU2ChannelTF:SU2_J400_K20_M420",
+        "file_path": "save/data/channels/kraus-SU2_J400_K20_M420.tfrecord"
     }
 ]

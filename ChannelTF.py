@@ -29,6 +29,9 @@ class ChannelTF:
         self.save()
         return self
 
+    def get_dual(self):
+        return ChannelTF().initialize(tf.linalg.adjoint(self.kraus_ops))
+
     def apply(self, matrix):
         rho_expanded = tf.expand_dims(matrix, axis=0)
         transformed= tf.matmul(self.kraus_ops, tf.matmul(rho_expanded, tf.transpose(tf.math.conj(self.kraus_ops), perm=[0, 2, 1])))
@@ -71,7 +74,7 @@ class ChannelTF:
                 return self
         
         # If no match is found
-        raise KeyError(f"No channel found with  with id {self.id} in {self.db_path}")
+        raise KeyError(f"No channel found with  with id {self.id} in {self.channels_json}")
 
     def save(self):
         """
