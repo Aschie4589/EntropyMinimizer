@@ -1,0 +1,18 @@
+[
+    {
+        "minimizer_id": "831b03ec-7eae-4740-9977-1f7e598fc893",
+        "channel_id": "SU2ChannelTF:SU2ChannelTF:SU2_J3_K3_M6",
+        "dual_channel_id": "SU2ChannelTF:SU2ChannelTF:SU2_J3_K3_M6",
+        "vector_id": "e9fe4153-03fb-4070-8746-020b205e726c",
+        "epsilon": 0.001,
+        "tolerance": 1e-15
+    },
+    {
+        "minimizer_id": "f9f898e5-46d6-4463-940e-7ca0253a83c4",
+        "channel_id": "SU2ChannelTF:SU2ChannelTF:SU2_J3_K3_M6",
+        "dual_channel_id": "SU2ChannelTF:SU2ChannelTF:SU2_J3_K3_M6",
+        "vector_id": "1a59c66a-a0ab-4e5a-970c-efb6cb4ff3c4",
+        "epsilon": 0.0001,
+        "tolerance": 1e-15
+    }
+]

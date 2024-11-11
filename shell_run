@@ -1,0 +1,30 @@
+#!/bin/bash
+# 
+#SBATCH --partition=gpu                      # cpu / gpu (gpu in case of cuda programming) - please note the #SBATCHs are not comments!
+#SBATCH --nodes=1                            # do not to change
+#SBATCH --cpus-per-task=24                   # Run on 24 CPUS (https://slurm.schedmd.com/srun.html#OPT_cpus-per-task)
+#SBATCH --job-name=ent_tommaso           # Job name (do not include spaces)
+#SBATCH --mail-type=NONE                     # Mail events (NONE, BEGIN, END, FAIL, ALL)
+#SBATCH --mem=50gb                           # Job memory request
+#SBATCH --time=12:00:00                      # Time limit hrs:min:sec
+#SBATCH --output=test_%j.log               # Standard output and error log
+
+echo "This will make pip available in the new virtual environment..."
+
+# Create and activate virtual environment (if not already done)
+
+python3 -m venv /export/home/tommaso.aschieri2/venv/
+source /export/home/tommaso.aschieri2/venv/bin/activate
+pip install --no-index --upgrade pip
+
+echo
+echo "CUDA"
+# call if need cuda
+module load cuda
+nvcc -V
+
+
+
+# anaconda pytorch
+echo "python"
+python3 entropy.py
