@@ -19,6 +19,10 @@ class EntropyMinimizerTF:
         self.channels_json = os.path.join(self.parent_dir, "save","data","channels.json") #path to save data
         self.channels_dir = os.path.join(self.parent_dir, "save","data","channels")
         self.vectors_dir = os.path.join(self.parent_dir, "save","data","vectors")
+        self.snapshots_dir = os.path.join(self.parent_dir, "save","data","vectors","snapshots")
+        self.itermax = 20 # nr of iterations to keep track of to see improvements of entropy. Leave 20 or change.
+        self.entropy_buffer = deque(maxlen=self.itermax)
+                
 
     def initialize(self, channel, epsilon, tolerance=1e15, startvec=None):
         '''
@@ -53,6 +57,8 @@ class EntropyMinimizerTF:
             self.vector = startvec
         #create the rank one projector
         self.projector = tf.squeeze(tf.tensordot(self.vector, tf.math.conj(self.vector),axes=0))
+
+        self.snapshots = [self.vector]
         return self
 
     def initialize_random_vector(self):
@@ -67,7 +73,7 @@ class EntropyMinimizerTF:
         self.vector = random_complex / tf.linalg.norm(random_complex)
         return self
 
-    def iterate(self):
+    def iterate_algorithm(self):
         '''
         Run a single step in the minimization
         '''
@@ -90,17 +96,24 @@ class EntropyMinimizerTF:
         # Ensure save directory exists
         os.makedirs(self.channels_dir, exist_ok=True)
         os.makedirs(self.vectors_dir, exist_ok=True)
+        os.makedirs(os.path.join(self.snapshots_dir,self.id), exist_ok=True)
         
         # Serialize and save the current state vector
         vector_serialized = tf.io.serialize_tensor(self.vector)
-        tf.io.write_file(os.path.join(self.vectors_dir, f"{self.id}_minimizer_{self.vector_id}.tfrecord"), vector_serialized)
+        tf.io.write_file(os.path.join(self.vectors_dir, f"{self.id}_{self.vector_id}_vector.tfrecord"), vector_serialized)
+
+        # Serialize and save the snapshot vectors
+        for (i,v) in enumerate(self.snapshots):
+            vector_serialized = tf.io.serialize_tensor(v)
+            tf.io.write_file(os.path.join(self.snapshots_dir,self.id, f"{self.vector_id}_snapshot_{i}.tfrecord"), vector_serialized)
+
 
         # Save the channel
         self.channel.save()
         self.dual_channel.save()
 
         # Update JSON database
-        db_entry = {"minimizer_id": self.id, "channel_id": self.channel.id, "dual_channel_id": self.dual_channel.id, "vector_id":self.vector_id, "epsilon": self.epsilon, "tolerance":self.tolerance}
+        db_entry = {"minimizer_id": self.id, "channel_id": self.channel.id, "dual_channel_id": self.dual_channel.id, "vector_id":self.vector_id, "epsilon": self.epsilon, "tolerance":self.tolerance, "number_snapshots":len(self.snapshots)}
         
         # Load existing database or create a new one, to append the new entry.
         if os.path.exists(self.minimizer_json):
@@ -110,6 +123,8 @@ class EntropyMinimizerTF:
             database = []
 
         # Add the new entry. If duplicate, this is ok because the minimization can be run multiple times and we expect different minimizers.
+        # TODO: The minimizer saves snapshots, but these don't have unique names depending on the run! Implement a second id, unique to the run,
+        # which is appended to the name of the saved vectors. This would solve this issue.
         database.append(db_entry)
         
         # Save the updated database
@@ -134,24 +149,33 @@ class EntropyMinimizerTF:
                 self.vector_id = entry["vector_id"]
 
                 # Load the channels. If not possible, throw error.
-                ch_module,ch_class, ch_id = entry["channel_id"].split(":")
+                ch_module,ch_class, _ = entry["channel_id"].split(":")
                 module = importlib.import_module(ch_module)
                 self.channel = getattr(module,ch_class)()
-                print(type(self.channel))
-                if not self.channel.load(ch_id):
-                    raise KeyError(f"Did not find a channel with id {entry['channel_id']}")
+                self.channel.load(entry["channel_id"])
 
-                d_ch_module,d_ch_class, d_ch_id = entry["dual_channel_id"].split(":")
+                d_ch_module,d_ch_class, _ = entry["dual_channel_id"].split(":")
                 module = importlib.import_module(d_ch_module)
                 self.dual_channel = getattr(module,d_ch_class)()
-                if not self.dual_channel.load(d_ch_id):
-                    raise KeyError(f"Did not find a channel with id {entry['dual_channel_id']}")
+                self.dual_channel.load(entry["dual_channel_id"])
 
                 # Load the vector. If not possible, throw error.
-                if not os.path.exists(os.path.join(self.vectors_dir, f"{self.id}_minimizer_{self.vector_id}.tfrecord")):
+                if not os.path.exists(os.path.join(self.vectors_dir, f"{self.id}_{self.vector_id}_vector.tfrecord")):
                     raise FileNotFoundError("Could not find saved vector state!")
-                tensor_serialized = tf.io.read_file(os.path.join(self.vectors_dir, f"{self.id}_minimizer_{self.vector_id}.tfrecord"))
+                tensor_serialized = tf.io.read_file(os.path.join(self.vectors_dir, f"{self.id}_{self.vector_id}_vector.tfrecord"))
                 self.vector = tf.io.parse_tensor(tensor_serialized, out_type=tf.complex128)  
+                #create the rank one projector
+                self.projector = tf.squeeze(tf.tensordot(self.vector, tf.math.conj(self.vector),axes=0))
+
+                # Load the snapshots. If not possible, throw error.
+                self.snapshots = []
+                for i in range(entry["number_snapshots"]):
+                    print(i)
+                    print(os.path.join(self.snapshots_dir, f"{self.vector_id}_snapshot_{i}.tfrecord"))
+                    if not os.path.exists(os.path.join(self.snapshots_dir,self.id, f"{self.vector_id}_snapshot_{i}.tfrecord")):
+                        raise FileNotFoundError("Could not find saved vector state snapshots!")
+                    tensor_serialized = tf.io.read_file(os.path.join(self.snapshots_dir,self.id, f"{self.vector_id}_snapshot_{i}.tfrecord"))
+                    self.snapshots.append(tf.io.parse_tensor(tensor_serialized, out_type=tf.complex128))
 
                 # Load epsilon
                 self.epsilon = entry["epsilon"]
@@ -170,33 +194,42 @@ class EntropyMinimizerTF:
         
         raise KeyError(f"Did not find a minimizer with id {id} in {self.minimizer_json}")
 
+    def step_minimization(self,step_number,snapshot_interval=5, verbose=True):
+        '''
+        Single step of the iteration. Returns True if minimization has finished.
+        '''
+        self.iterate_algorithm()
+        # Find the new entropy. Append to entropy buffer
+        self.entropy_buffer.append(tf.abs(self.current_entropy()))
+        if verbose:
+            print(f"Entropy so far (iteration {step_number}): {tf.abs(self.entropy_buffer[-1])}", end="\n")
+        # Check if we need to stop optimizing
+        improvements = [self.entropy_buffer[i] - self.entropy_buffer[i + 1] for i in range(len(self.entropy_buffer) - 1)]
+        # Check if we need to save the result.
+        if (step_number+1)%snapshot_interval == 0:
+            self.snapshots.append(self.vector)
+
+        # We need to stop if they all are small, or if the average is zero or less.
+
+        return len(self.entropy_buffer)==self.itermax and (all([abs(el) < self.tolerance for el in improvements]) or sum(improvements) <= 0)
+
     def run_minimization(self):
         '''
         Run the algorithm. Used inside the wrapper minimize_output_entropy() to allow for timing of the process.
         Will stop if the tolerance is reached, or if over the last 20 iterations the entropy has on average stayed the same or not improved.
         '''
         max_iterations = 100000
-        iterations_cutoff = 20 #If the new entropy is less than epsilon away from the old one more than this number of times, stop optimizing
         print(f"Starting optimization of given channel...")
-        #Define an entropy buffer. It holds the last iterations_cutoff entropy values.
-        entropy_buffer = deque(maxlen=iterations_cutoff)
-        entropy_buffer.append(tf.abs(self.current_entropy()))
+        #Use an entropy buffer. It holds the last iterations_cutoff entropy values.
+        self.entropy_buffer.append(tf.abs(self.current_entropy()))
 
         for i in range(max_iterations):
-            self.iterate()
-            # Find the new entropy. Append to entropy buffer
-            entropy_buffer.append(tf.abs(self.current_entropy()))
-
-            print(f"Entropy so far (iteration {i}): {tf.abs(entropy_buffer[-1])}", end="\n")
-            # Check if we need to stop optimizing
-            improvements = [entropy_buffer[i] - entropy_buffer[i + 1] for i in range(len(entropy_buffer) - 1)]
-            # We need to stop if they all are small, or if the average is zero or less.
-            if all([abs(el) < self.tolerance for el in improvements]) or sum(improvements)/len(improvements) <= 0: 
-                break
-
-        print(f"Finished. Minimal entropy is: {tf.abs(tf.abs(entropy_buffer[-1]))} with tolerance {self.tolerance}.")
-        return self
+            if self.step_minimization(i):
+                print(f"Finished. Minimal entropy is: {tf.abs(tf.abs(self.entropy_buffer[-1]))} with tolerance {self.tolerance}.")
+                self.total_iterations = i+1
+                return self
     
     def minimize_output_entropy(self):
         e = timeit.timeit(self.run_minimization, number=1)
-        print(f"Elapsed time: {e}s")
+        print(f"Elapsed time: {e}s. Average s/iteration: {e/self.total_iterations}")
+        self.save()

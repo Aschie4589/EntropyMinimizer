@@ -40,13 +40,7 @@ class ChannelTF:
 
     def load(self,id):
         """
-        Loads the embedding tensor (iota) from a file if it exists in the database.
-        
-        The method checks if the tensor associated with the current J, K, M quantum numbers 
-        is already saved. If it exists, the tensor is deserialized and loaded.
-        
-        Returns:
-            bool: True if the tensor was successfully loaded, False otherwise.
+        Loads the kraus operators from a file if it exists in the database.
         """
         # Load the JSON database
         if not os.path.exists(self.channels_json):
@@ -56,6 +50,7 @@ class ChannelTF:
             database = json.load(f)
         
         # Search for the tensor by labels J, K, M
+        print("Want to load the channel!")
         for entry in database:
             if "id" in entry and entry["id"] == id:
                 file_path_rel = entry["file_path"] #relative to dir
@@ -70,11 +65,11 @@ class ChannelTF:
                 self.input_dim = self.kraus_ops.shape[2]
                 self.output_dim = self.kraus_ops.shape[1]
 
-                print(f"Tensor loaded from {file_path}")
+                print(f"Tensor loaded from {file_path}: {id}")
                 return self
         
         # If no match is found
-        raise KeyError(f"No channel found with  with id {self.id} in {self.channels_json}")
+        raise KeyError(f"No channel found with  with id {id} in {self.channels_json}")
 
     def save(self):
         """
