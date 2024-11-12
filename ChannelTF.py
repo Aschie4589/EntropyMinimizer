@@ -8,11 +8,11 @@ class ChannelTF:
     Also allow to save the channel and to restore it from saved file. This requires the channel to have a unique identifier.
 
     '''
-    def __init__(self):
+    def __init__(self,dtype=tf.complex128):
         self.parent_dir = os.path.dirname(os.path.abspath(__file__)) #directory this file is in
         self.channels_json = os.path.join(self.parent_dir, "save","data","channels.json") #path to save data
         self.channels_dir = os.path.join(self.parent_dir, "save","data","channels")
-
+        self.dtype = dtype
     def initialize(self, kraus_operators:list,id:str=""):
         '''
         Phi= sum K rho K^*
@@ -30,13 +30,13 @@ class ChannelTF:
         return self
 
     def get_dual(self):
-        return ChannelTF().initialize(tf.linalg.adjoint(self.kraus_ops))
+        return ChannelTF(dtype=tf.complex128).initialize(tf.linalg.adjoint(self.output_dim/self.input_dim*self.kraus_ops))
 
     def apply(self, matrix):
         rho_expanded = tf.expand_dims(matrix, axis=0)
         transformed= tf.matmul(self.kraus_ops, tf.matmul(rho_expanded, tf.transpose(tf.math.conj(self.kraus_ops), perm=[0, 2, 1])))
         output = tf.reduce_sum(transformed, axis=0)  # Shape: (d', d')
-        return output        
+        return output      
 
     def load(self,id):
         """

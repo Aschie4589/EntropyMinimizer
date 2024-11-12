@@ -5,10 +5,19 @@ import os.path
 import uuid
 import json 
 import importlib
+import logging
+
+# Configure the logging
+logging.basicConfig(
+    filename=os.path.join(os.path.dirname(os.path.abspath(__file__)),'run.log'),  # Log file path
+    level=logging.INFO,             # Log level (INFO, DEBUG, ERROR, etc.)
+    format='%(asctime)s - %(levelname)s - %(message)s'  # Log format
+)
+
 
 class EntropyMinimizerTF:
 
-    def __init__(self):
+    def __init__(self, dtype = tf.complex128):
         '''
         Entropy minimizer. Will minimize von Neumann entropy by iteratively selecting highest eigenvector of dual_channel(logm(channel(rho))).
         This is guaranteed to decrease entropy at each step.
@@ -22,6 +31,7 @@ class EntropyMinimizerTF:
         self.snapshots_dir = os.path.join(self.parent_dir, "save","data","vectors","snapshots")
         self.itermax = 20 # nr of iterations to keep track of to see improvements of entropy. Leave 20 or change.
         self.entropy_buffer = deque(maxlen=self.itermax)
+        self.dtype = dtype
                 
 
     def initialize(self, channel, epsilon, tolerance=1e15, startvec=None):
@@ -65,32 +75,58 @@ class EntropyMinimizerTF:
         '''
         Initializes self.vector to a random vector taken from the uniform density on states.
         '''
-        # Initialize the vector to start optimization with
-        #Choosing standard gaussian for both real and imaginary parts gives the uniform distribution in the state space!
-        random_real = tf.random.normal(shape=[self.input_dim, 1], mean=0.0, stddev=1.0, dtype=tf.float64)
-        random_imaginary = tf.random.normal(shape=[self.input_dim, 1], mean=0.0, stddev=1.0, dtype=tf.float64)
-        random_complex = tf.complex(random_real, random_imaginary)
-        self.vector = random_complex / tf.linalg.norm(random_complex)
+        @tf.function
+        def wrapper(self,dtype=tf.complex128):
+            # Initialize the vector to start optimization with
+            #Choosing standard gaussian for both real and imaginary parts gives the uniform distribution in the state space!
+            random_real = tf.random.normal(shape=[self.input_dim, 1], mean=0.0, stddev=1.0, dtype=tf.float64)
+            random_imaginary = tf.random.normal(shape=[self.input_dim, 1], mean=0.0, stddev=1.0, dtype=tf.float64)
+            random_complex = tf.complex(random_real, random_imaginary)
+            return tf.cast(random_complex/tf.linalg.norm(random_complex),dtype=dtype)
+        self.vector = wrapper(self, dtype=tf.complex128)
         return self
 
     def iterate_algorithm(self):
         '''
-        Run a single step in the minimization
+        Run a single step in the minimization. Redefine application of channels for faster (?) tf computation.
         '''
-        new_mat = self.input_dim/self.output_dim*self.dual_eps_channel(tf.linalg.logm(self.eps_channel(self.projector)))
-        eigval, eigvec = tf.linalg.eigh(new_mat)
-        self.vector = eigvec[:, tf.argmin(tf.abs(eigval))]
+        @tf.function
+        def wrapper(proj,kraus1, kraus2, epsilon):
+            rho_expanded = tf.expand_dims(proj, axis=0)
+            transformed= tf.matmul(kraus1, tf.matmul(rho_expanded, tf.transpose(tf.math.conj(kraus1), perm=[0, 2, 1])))
+            ch_applied = tf.reduce_sum(transformed, axis=0)  # Shape: (d', d')
+            applied_1 = (1-epsilon)*ch_applied+epsilon/ch_applied.shape[0]*tf.eye(ch_applied.shape[0],dtype=tf.complex128)
+            log_applied_1 = tf.linalg.logm(applied_1)
+
+            rho_expanded_out = tf.expand_dims(log_applied_1, axis=0)
+            transformed_out= tf.matmul(kraus2, tf.matmul(rho_expanded_out, tf.transpose(tf.math.conj(kraus2), perm=[0, 2, 1])))
+            ch_2_applied = tf.reduce_sum(transformed_out, axis=0)  # Shape: (d', d')
+            new_mat = (1-epsilon)*ch_2_applied+epsilon/ch_2_applied.shape[0]*tf.eye(ch_2_applied.shape[0],dtype=tf.complex128)
+
+            eigval, eigvec = tf.linalg.eigh(new_mat)
+            v = eigvec[:, tf.argmin(tf.abs(eigval))]
+            return v,tf.squeeze(tf.tensordot(v, tf.math.conj(v),axes=0))
+
         
-        self.projector = tf.squeeze(tf.tensordot(self.vector, tf.math.conj(self.vector),axes=0))
+
+        self.vector,self.projector = wrapper(self.projector, self.channel.kraus_ops,self.dual_channel.kraus_ops,self.epsilon)
+
         
     def current_entropy(self):
         '''
         Return the current entropy of channel(self.projector)
+
         '''
-        out = self.eps_channel(self.projector)
-        eig = tf.linalg.eigvalsh(out)
-        log_eig = tf.math.log(eig)
-        return -tf.reduce_sum(eig * log_eig)
+        @tf.function
+        def wrapper(proj,kraus1, epsilon):
+            rho_expanded = tf.expand_dims(proj, axis=0)
+            transformed= tf.matmul(kraus1, tf.matmul(rho_expanded, tf.transpose(tf.math.conj(kraus1), perm=[0, 2, 1])))
+            ch_applied = tf.reduce_sum(transformed, axis=0)  # Shape: (d', d')
+            applied = (1-epsilon)*ch_applied+epsilon/ch_applied.shape[0]*tf.eye(ch_applied.shape[0],dtype=tf.complex128)
+            eig = tf.linalg.eigvalsh(applied)
+            log_eig = tf.math.log(eig)
+            return -tf.reduce_sum(eig * log_eig)
+        return wrapper(self.projector,self.channel.kraus_ops, self.epsilon)
 
     def save(self):
         # Ensure save directory exists
@@ -194,7 +230,7 @@ class EntropyMinimizerTF:
         
         raise KeyError(f"Did not find a minimizer with id {id} in {self.minimizer_json}")
 
-    def step_minimization(self,step_number,snapshot_interval=5, verbose=True):
+    def step_minimization(self,step_number,snapshot_interval=5, verbose=True,log=False):
         '''
         Single step of the iteration. Returns True if minimization has finished.
         '''
@@ -208,28 +244,35 @@ class EntropyMinimizerTF:
         # Check if we need to save the result.
         if (step_number+1)%snapshot_interval == 0:
             self.snapshots.append(self.vector)
+            if log:
+                logging.info(f"Snapshot taken. Entropy so far (iteration {step_number}): {tf.abs(self.entropy_buffer[-1])}")
 
         # We need to stop if they all are small, or if the average is zero or less.
 
         return len(self.entropy_buffer)==self.itermax and (all([abs(el) < self.tolerance for el in improvements]) or sum(improvements) <= 0)
 
-    def run_minimization(self):
+    def run_minimization(self,log=False,verbose=True):
         '''
         Run the algorithm. Used inside the wrapper minimize_output_entropy() to allow for timing of the process.
         Will stop if the tolerance is reached, or if over the last 20 iterations the entropy has on average stayed the same or not improved.
         '''
         max_iterations = 100000
         print(f"Starting optimization of given channel...")
+        if log:
+            logging.info(f"Starting optimization of given channel...")
         #Use an entropy buffer. It holds the last iterations_cutoff entropy values.
         self.entropy_buffer.append(tf.abs(self.current_entropy()))
 
         for i in range(max_iterations):
-            if self.step_minimization(i):
+            if self.step_minimization(i,log=log,verbose=verbose):
                 print(f"Finished. Minimal entropy is: {tf.abs(tf.abs(self.entropy_buffer[-1]))} with tolerance {self.tolerance}.")
+                if log:
+                    logging.info(f"Finished. Minimal entropy is: {tf.abs(tf.abs(self.entropy_buffer[-1]))} with tolerance {self.tolerance}.")
                 self.total_iterations = i+1
                 return self
     
-    def minimize_output_entropy(self):
-        e = timeit.timeit(self.run_minimization, number=1)
+    def minimize_output_entropy(self, log=False,verbose=True,save=True):
+        e = timeit.timeit(lambda:self.run_minimization(log=log,verbose=verbose), number=1)
         print(f"Elapsed time: {e}s. Average s/iteration: {e/self.total_iterations}")
-        self.save()
+        if save:
+            self.save()

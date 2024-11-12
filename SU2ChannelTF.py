@@ -10,8 +10,8 @@ class SU2ChannelTF(ChannelTF):
     metadata of the saved tensor in a JSON database located in the 'channels' subdirectory.
     """    
     
-    def __init__(self):
-        super().__init__()
+    def __init__(self,dtype=tf.complex128):
+        super().__init__(dtype)
 
     def initialize(self,J,K,M):
         """
