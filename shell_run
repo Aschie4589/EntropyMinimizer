@@ -27,4 +27,4 @@ nvcc -V
 
 # anaconda pytorch
 echo "python"
-python3 entropy.py
+python3 speed_test.py
