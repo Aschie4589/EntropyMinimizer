@@ -1,37 +1,22 @@
-from MinimizerTFModule import *
+from Minimizer import *
 import timeit
-import logging
-from sympy.physics.quantum.spin import JxKet,JyKet
-import sympy as sp
-
-# Configure the logging
-logging.basicConfig(
-    filename='run2.log',  # Log file path
-    level=logging.INFO,             # Log level (INFO, DEBUG, ERROR, etc.)
-    format='%(asctime)s - %(levelname)s - %(message)s'  # Log format
-)
-
-
-d = 17
-N = 30
-
-timing_steps = 1
-parallel_computations=2
-timing=True
 
 # Generate unitary uniformly at random over haar measure.
 # To do so, generate random matrix with entries whose real, imaginary parts all are iid random variables
 # with standard normal distribution. The unitary in the QR distribution will be a haar random unitary if the R part has positive diagonal entries (it has in this implementation)
-#kraus_1 = 1/tf.sqrt(tf.cast(d, tf.complex128))*tf.linalg.qr(tf.complex(tf.random.normal([d,N,N],dtype=tf.float64),tf.random.normal([d,N,N],dtype=tf.float64)), full_matrices=True)[0]
-#kraus_2 = [tf.linalg.adjoint(tf.transpose(el)) for el in kraus_1]
-#tensor_kraus = [tf.experimental.numpy.kron(e1, e2) for e1 in kraus_1 for e2 in kraus_2]
+d = 5
+N = 10
+kraus_1 = 1/tf.sqrt(tf.cast(d, tf.complex128))*tf.linalg.qr(tf.complex(tf.random.normal([d,N,N],dtype=tf.float64),tf.random.normal([d,N,N],dtype=tf.float64)), full_matrices=True)[0]
+kraus_2 = [tf.linalg.adjoint(tf.transpose(el)) for el in kraus_1]
+tensor_kraus = [tf.experimental.numpy.kron(e1, e2) for e1 in kraus_1 for e2 in kraus_2]
+
 
 # Let's use the Pauli group instead. 
 '''
 An element is of the form AB where A is in {I, S, H, SH, HS, HSH} and B is in {I,X,Y,Z}
-'''
-J = 14
+J = 2
 dimJ = int(2*J+1)
+
 
 # Define the matrices of spin, raising and lowering operators for the J representation
 Jz = tf.cast(tf.linalg.diag([J-i for i in range(dimJ)]), tf.complex128)
@@ -78,16 +63,18 @@ kraus1 = [1/tf.sqrt(tf.constant(24,dtype=tf.complex128))*tf.matmul(a,b) for a in
 kraus2 = [tf.linalg.adjoint(tf.transpose(el)) for el in kraus1]
 tkraus = [tf.experimental.numpy.kron(e1, e2) for e1 in kraus1 for e2 in kraus2]
 
-
+'''
 # Set it up 
 
-epsilon = 1/1000
-minimizer = MinimizerTFModule(kraus1,epsilon,parallel_computations)
+config = MinimizerConfig(parallel_computations=10,verbose=True)
+minimizer = EntropyMinimizer(config=config)
 
+minimizer.initialize(tensor_kraus)
+minimizer.run_minimization()
 
-for i in range(800): #500 were enough before
-    e = timeit.timeit(minimizer.step,number=timing_steps)
-    if timing:
-        logging.info(f"Iterated {timing_steps} times. Elapsed time: {e}s")
-    logging.info(f"Minimum entropy so far over {parallel_computations} vectors: {tf.reduce_min(tf.cast(tf.abs(minimizer.current_entropy(minimizer.get_projectors(minimizer.vector), minimizer.kraus_ops, minimizer.epsilon)),tf.float64))}")
+#for i in range(800): #500 were enough before
+#    e = timeit.timeit(minimizer.step,number=timing_steps)
+#    if timing:
+#        logging.info(f"Iterated {timing_steps} times. Elapsed time: {e}s")
+#    logging.info(f"Minimum entropy so far over {parallel_computations} vectors: {tf.reduce_min(minimizer.entropy)}")
 
