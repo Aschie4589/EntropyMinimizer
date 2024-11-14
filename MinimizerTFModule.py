@@ -53,6 +53,7 @@ class MinimizerTFModule(tf.Module):
         # Normalize the complex vectors (each vector should have unit norm)
         return tf.linalg.normalize(random_complex, axis=1)[0]  # Normalize returns both normalized vectors and their norms
 
+    @tf.function
     def get_projectors(self, v):
         '''
         Computes the projectors for a batch of quantum state vectors.
@@ -65,6 +66,7 @@ class MinimizerTFModule(tf.Module):
         '''
         return tf.expand_dims(tf.matmul(v, v, adjoint_b=True), axis=0)
 
+    @tf.function
     def apply_channel(self, mat, kraus):
         '''
         Applies the quantum channel to a matrix using the Kraus operators.
@@ -81,6 +83,7 @@ class MinimizerTFModule(tf.Module):
         '''
         return tf.reduce_sum(tf.matmul(tf.matmul(kraus, mat), kraus, adjoint_b=True), axis=0)
 
+    @tf.function
     def apply_dual_channel(self, mat, kraus):
         '''
         Applies the dual (adjoint) of the quantum channel to a matrix.
@@ -97,6 +100,7 @@ class MinimizerTFModule(tf.Module):
         '''
         return tf.reduce_sum(tf.matmul(tf.matmul(kraus, mat, adjoint_a=True), kraus), axis=0)
 
+    @tf.function
     def algorithm_step(self, mat, kraus, epsilon):
         '''
         Performs a single step of the entropy-minimizing algorithm to update the quantum state vector.

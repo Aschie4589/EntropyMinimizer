@@ -16,8 +16,8 @@ d = 17
 N = 30
 
 timing_steps = 1
-parallel_computations=1
-timing=False
+parallel_computations=2
+timing=True
 
 # Generate unitary uniformly at random over haar measure.
 # To do so, generate random matrix with entries whose real, imaginary parts all are iid random variables
@@ -79,9 +79,13 @@ kraus2 = [tf.linalg.adjoint(tf.transpose(el)) for el in kraus1]
 tkraus = [tf.experimental.numpy.kron(e1, e2) for e1 in kraus1 for e2 in kraus2]
 
 
+# Set it up 
+
 epsilon = 1/1000
-minimizer = MinimizerTFModule(tkraus,epsilon,parallel_computations)
-for i in range(5):
+minimizer = MinimizerTFModule(kraus1,epsilon,parallel_computations)
+
+
+for i in range(800): #500 were enough before
     e = timeit.timeit(minimizer.step,number=timing_steps)
     if timing:
         logging.info(f"Iterated {timing_steps} times. Elapsed time: {e}s")
