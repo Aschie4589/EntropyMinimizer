@@ -20,8 +20,9 @@ class MinimizerConfig:
     parallel_computations : int = 1
     epsilon : float = 1/1000
     # Saving configuration
-    snapshot_interval : int = 5 # after how many iterations to save the current best vector
+    snapshot_interval : int = 20 # after how many iterations to save the current best vector
 
     # Output configuration
     verbose : bool = False
     log : bool = False
+    log_level = 1 #0 only prints essential messages like start and end of run info. 1 prints all messages.

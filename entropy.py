@@ -1,11 +1,10 @@
 from Minimizer import *
-import timeit
 
 # Generate unitary uniformly at random over haar measure.
 # To do so, generate random matrix with entries whose real, imaginary parts all are iid random variables
 # with standard normal distribution. The unitary in the QR distribution will be a haar random unitary if the R part has positive diagonal entries (it has in this implementation)
-d = 5
-N = 10
+d = 3
+N = 6
 kraus_1 = 1/tf.sqrt(tf.cast(d, tf.complex128))*tf.linalg.qr(tf.complex(tf.random.normal([d,N,N],dtype=tf.float64),tf.random.normal([d,N,N],dtype=tf.float64)), full_matrices=True)[0]
 kraus_2 = [tf.linalg.adjoint(tf.transpose(el)) for el in kraus_1]
 tensor_kraus = [tf.experimental.numpy.kron(e1, e2) for e1 in kraus_1 for e2 in kraus_2]
@@ -66,15 +65,8 @@ tkraus = [tf.experimental.numpy.kron(e1, e2) for e1 in kraus1 for e2 in kraus2]
 '''
 # Set it up 
 
-config = MinimizerConfig(parallel_computations=10,verbose=True)
+config = MinimizerConfig(parallel_computations=10,log=True)
 minimizer = EntropyMinimizer(config=config)
 
-minimizer.initialize(tensor_kraus)
-minimizer.run_minimization()
-
-#for i in range(800): #500 were enough before
-#    e = timeit.timeit(minimizer.step,number=timing_steps)
-#    if timing:
-#        logging.info(f"Iterated {timing_steps} times. Elapsed time: {e}s")
-#    logging.info(f"Minimum entropy so far over {parallel_computations} vectors: {tf.reduce_min(minimizer.entropy)}")
-
+minimizer.initialize(tensor_kraus, id="2", run_id="1")
+minimizer.time_minimization()
