@@ -2,8 +2,8 @@ from dataclasses import dataclass
 import os.path
 
 
-@dataclass
-class MinimizerConfig:
+@dataclass 
+class FolderConfig:
     # Save path configuration. All will be created when Minimizer is instantiated.
     parent_dir = os.path.dirname(os.path.abspath(__file__)) # Directory this file is in
     log_dir = os.path.join(parent_dir, "logs",)
@@ -12,6 +12,10 @@ class MinimizerConfig:
     snapshots_dir = os.path.join(parent_dir, "save","data","vectors","snapshots")
     minimizer_json = os.path.join(parent_dir, "save","minimizer.json") #path to minimizer.json
     channels_json = os.path.join(parent_dir, "save","data","channels.json") #path to save data
+
+
+@dataclass
+class MinimizerConfig(FolderConfig):
     # Algorithm configuration
     deque_size : int = 20 # nr of iterations to keep track of to see improvements of entropy
     tolerance : float = 1e-15
@@ -26,3 +30,8 @@ class MinimizerConfig:
     verbose : bool = False
     log : bool = False
     log_level = 1 #0 only prints essential messages like start and end of run info. 1 prints all messages.
+
+
+@dataclass
+class VisualizerConfig(FolderConfig):
+        show_sphere = True

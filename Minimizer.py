@@ -1,5 +1,5 @@
 from MinimizerModule import *
-from MinimizerConfig import *
+from Config import *
 import tensorflow as tf
 import time
 from collections import deque
@@ -24,12 +24,7 @@ class EntropyMinimizer:
         self.ensure_folders([self.config.channels_dir, self.config.log_dir, self.config.snapshots_dir, self.config.vectors_dir])
 
         # Configure logging for this instance of minimizer
-        if self.config.log:
-            logging.basicConfig(
-                filename=os.path.join(self.config.log_dir,f'{self.run_id}.log'),  # Log file path
-                level=logging.INFO,             # Log level (INFO, DEBUG, ERROR, etc.)
-                format='%(asctime)s - %(levelname)s - %(message)s'  # Log format
-            )
+        self.logger = self.setup_logger(str(self.run_id),os.path.join(self.config.log_dir,f'run_{self.run_id}.log'))
 
         # Instantiate the deque that will track the last few entropies calculated. It contains tf tensors!
         self.entropy_buffer = deque(maxlen=self.config.deque_size)
@@ -45,6 +40,18 @@ class EntropyMinimizer:
         self.save_snapshot()
         return self
 
+    def setup_logger(self,name, log_file, level=logging.INFO):
+        """To setup as many loggers as you want"""
+        handler = logging.FileHandler(log_file)        
+        handler.setFormatter(logging.Formatter('%(asctime)s - %(message)s'))
+        logger = logging.getLogger(name)
+        logger.setLevel(level)
+        logger.addHandler(handler)
+
+        return logger
+
+
+
     def ensure_folders(self, folder_paths):
         for folder in folder_paths:
             os.makedirs(folder, exist_ok=True)        
@@ -58,8 +65,8 @@ class EntropyMinimizer:
             database = []
         # Remove the db entry if both the minimizer id and the run id are already present, because we are updating exactly that entry.
         for i in range(len(database)):
-            if database[i]["minimizer_id"] == self.id and database[i]["run_id"] == self.run_id:
-                database.pop(i)
+            if database[len(database)-1-i]["minimizer_id"] == self.id and database[len(database)-1-i]["run_id"] == self.run_id:
+                database.pop(len(database)-1-i)
 
         # Now create the new minimizer entry in the database.
         db_entry = {
@@ -139,7 +146,7 @@ class EntropyMinimizer:
         if self.config.log:
             # Log the message if the level of logging in config is at least the log_level specified.
             if log_level <= self.config.log_level:
-                logging.info(strg)
+                self.logger.info(f"[Run {self.run_id}] "+strg)
         if self.config.verbose:
             print(strg)
 
