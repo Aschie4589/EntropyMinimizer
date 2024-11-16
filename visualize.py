@@ -1,17 +1,34 @@
 from Visualizer import *
+import math 
+from matplotlib import pyplot as plt
 
 visualizer = Visualizer()
 
-visualizer.load_minimizer("CliffordChannel")
+ent = []
+visualizer.load_minimizer("CliffordChannelLowDim")
+for run_dict in visualizer.get_runs():
+    for run in run_dict.keys():
+        ent.append(run_dict[run]) 
+
+bins = []
+count = []
+for e in ent:
+    found = False
+    for (i,b) in enumerate(bins):
+        if abs(e-b)<1e-7:
+            count[i] +=1
+            found = True
+    if not found:
+        bins.append(e)
+        count.append(1)
+
+
+
+print(*sorted(list(zip(bins,count))), sep="\n")
+    
+
 
 #print(*visualizer.get_runs(), sep="\n")
-
-#print(visualizer.get_snapshots("1")[-1])
-
-v = visualizer.load_vector(run="1", snapshot="7585b9da-3909-44b3-b12a-e0ad8f4d4afd")
-
-print(v)
-
 
 def schmidt_decomposition(vector, dimA, dimB):
     # matrix M satisfies: M_ij = beta_ij, where vector = sum beta_ij e_i(x)e_j
@@ -21,8 +38,13 @@ def schmidt_decomposition(vector, dimA, dimB):
     # Schmidt decomposition is columns of U and Vt (not V transpose because of how tf implements output of svd)
     return (sing_val, U, Vt)
 
-# Example: Quantum state in a flat vector form (size d_A * d_B)
-psi = tf.constant([0.707, 0.0, 0.0,0.0,0.0,0.707], dtype=tf.float32)  # Example: Bell state
-d_A, d_B = 3, 2  # Dimensions of subsystems A and B
 
-print(schmidt_decomposition(psi, d_A, d_B))
+for run_dict in visualizer.get_runs():
+    for run in run_dict.keys():    
+        v = tf.reshape(visualizer.load_vector(run=run, snapshot=visualizer.get_snapshots(run)[-1]),[-1])
+        d = int(math.sqrt(v.shape[0]))
+
+
+        c, v1, v2 = schmidt_decomposition(v, d, d)
+
+        print(f"Run {run} max Schmidt coefficient: {c.numpy()[0]}")

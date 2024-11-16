@@ -1,21 +1,6 @@
-from Minimizer import *
+from classes.Minimizer import *
 
-# Generate unitary uniformly at random over haar measure.
-# To do so, generate random matrix with entries whose real, imaginary parts all are iid random variables
-# with standard normal distribution. The unitary in the QR distribution will be a haar random unitary if the R part has positive diagonal entries (it has in this implementation)
-#d = 3
-#N = 6
-#kraus_1 = 1/tf.sqrt(tf.cast(d, tf.complex128))*tf.linalg.qr(tf.complex(tf.random.normal([d,N,N],dtype=tf.float64),tf.random.normal([d,N,N],dtype=tf.float64)), full_matrices=True)[0]
-#kraus_2 = [tf.linalg.adjoint(tf.transpose(el)) for el in kraus_1]
-#tensor_kraus = [tf.experimental.numpy.kron(e1, e2) for e1 in kraus_1 for e2 in kraus_2]
-
-
-# Let's use the Pauli group instead. 
-'''
-An element is of the form AB where A is in {I, S, H, SH, HS, HSH} and B is in {I,X,Y,Z}
-
-'''
-J = 14
+J = 5
 dimJ = int(2*J+1)
 
 
@@ -64,10 +49,13 @@ kraus1 = [1/tf.sqrt(tf.constant(24,dtype=tf.complex128))*tf.matmul(a,b) for a in
 kraus2 = [tf.linalg.adjoint(tf.transpose(el)) for el in kraus1]
 tkraus = [tf.experimental.numpy.kron(e1, e2) for e1 in kraus1 for e2 in kraus2]
 
+state = tf.expand_dims(tf.expand_dims(tf.linalg.normalize(tf.reshape(tf.eye(dimJ, dtype=tf.complex128),[-1]))[0],[1]),[0])
+
+print(state)
 # Set it up 
-for i in range(101,200):
-    config = MinimizerConfig(parallel_computations=1,log=True)
+for i in range(1):
+    config = MinimizerConfig(parallel_computations=1,log=True, verbose=True, save=True)
     minimizer = EntropyMinimizer(config=config)
 
-    minimizer.initialize(kraus1, id="CliffordChannel", run_id=f"{i}")
+    minimizer.initialize(tkraus, id="CliffordChannelLowDim", run_id=f"Entangled{i}",startvec=state)
     minimizer.time_minimization()

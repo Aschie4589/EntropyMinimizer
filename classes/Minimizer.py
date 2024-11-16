@@ -1,5 +1,5 @@
-from MinimizerModule import *
-from Config import *
+from classes.MinimizerModule import *
+from classes.Config import *
 import tensorflow as tf
 import time
 from collections import deque
@@ -13,18 +13,19 @@ class EntropyMinimizer:
     def __init__(self, config:MinimizerConfig=MinimizerConfig()):
         self.config = config
 
-    def initialize(self, kraus, startvec=None, id:str="", run_id:str=""):
+    def initialize(self, kraus, vector=None, id:str="", run_id:str=""):
         self.id = id if id else str(uuid.uuid4())
         self.run_id = run_id if run_id else str(uuid.uuid4())
 
         # Instantiate the TF minimizer that will step through the algorithm
-        self.minimizer = MinimizerModule(kraus, self.config.epsilon, parallel_computations=self.config.parallel_computations, vec_states = startvec)
+        self.minimizer = MinimizerModule(kraus, self.config.epsilon, parallel_computations=self.config.parallel_computations, vec_states = vector)
 
         # Create the folder structure needed for saving and logging
         self.ensure_folders([self.config.channels_dir, self.config.log_dir, self.config.snapshots_dir, self.config.vectors_dir])
 
         # Configure logging for this instance of minimizer
-        self.logger = self.setup_logger(str(self.run_id),os.path.join(self.config.log_dir,f'run_{self.run_id}.log'))
+        if self.config.log:
+            self.logger = self.setup_logger(str(self.run_id),os.path.join(self.config.log_dir,f'run_{self.run_id}.log'))
 
         # Instantiate the deque that will track the last few entropies calculated. It contains tf tensors!
         self.entropy_buffer = deque(maxlen=self.config.deque_size)
@@ -37,7 +38,8 @@ class EntropyMinimizer:
         self.snapshots = []
         self.snapshots_uuids = []
         # Save the initial configuration.
-        self.save_snapshot()
+        if self.config.save:
+            self.save_snapshot()
         return self
 
     def setup_logger(self,name, log_file, level=logging.INFO):
@@ -105,14 +107,35 @@ class EntropyMinimizer:
 
     def save_kraus(self):
         '''
-        TODO: implement
+        Save Kraus operators to file. To load them, create a new Minimizer (with all the desired config), 
+        then initialize it using "initialize_from_save(id)" to load data. This loads the kraus operator
+        and calls the initialize method.
         '''
-        pass
-    def load_kraus(self):
+        # This ensures that a record is kept of the kraus operators for this particular instance of the channel and minimizer.
+        # To load 
+        # Ensure path exists
+        self.ensure_folders([self.config.channels_dir])
+
+        # Serialize and save the kraus operators to the correct path. Path is ./save/data/channels/{channel_uuid}.tfrecord
+        kraus_serialized = tf.io.serialize_tensor(self.minimizer.kraus_ops)
+        tf.io.write_file(os.path.join(self.config.channels_dir, f"{self.id}.tfrecord"), kraus_serialized)
+
+        return self
+
+    def initialize_from_save(self, id, run_id:str="", vector=None):
         '''
-        TODO: implement
+        This method tries to load the kraus operators with id "id". If found, they are passed to the initialize method to set everything else up.
         '''
-        pass
+
+        # Load the operators
+        fp = os.path.join(self.config.channels_dir,f"{id}.tfrecord")
+        if not os.path.exists(fp):
+            raise FileNotFoundError(f"Could not find saved kraus operators at {fp}!")
+        kraus_serialized = tf.io.read_file(fp)
+
+        # Call the initialize method.
+        self.initialize(tf.squeeze(tf.io.parse_tensor(kraus_serialized, out_type=tf.complex128),axis=[1]), id=id, run_id=run_id, vector=vector)
+        return self
 
     def step_minimization(self):
         '''
@@ -129,7 +152,7 @@ class EntropyMinimizer:
         self.message(f"Entropy so far (iteration {self.current_step}): {tf.abs(self.entropy_buffer[-1])}",log_level=1)
 
         # Save snapshot if needed.
-        if (self.current_step)%self.config.snapshot_interval == 0:
+        if self.config.save and (self.current_step)%self.config.snapshot_interval == 0:
             self.save_snapshot()
             self.message(f"Snapshot taken. Entropy so far (iteration {self.current_step}): {tf.abs(self.entropy_buffer[-1])}",log_level=1)
 
@@ -156,7 +179,8 @@ class EntropyMinimizer:
         for _ in range(self.config.max_iterations):
             if self.step_minimization():
                 self.message(f"Finished. Minimal entropy is: {self.entropy_buffer[-1]} with tolerance {self.config.tolerance}.")
-                self.save_snapshot()
+                if self.config.save:
+                    self.save_snapshot()
                 return self
             
     def time_minimization(self):
@@ -167,6 +191,7 @@ class EntropyMinimizer:
             if self.step_minimization():
                 self.message(f"Finished. Minimal entropy is: {self.entropy_buffer[-1]} with tolerance {self.config.tolerance}.")
                 self.message(f"Total elapsed time: {time.time()-initial_time}s.")
-                self.save_snapshot()
+                if self.config.save:
+                    self.save_snapshot()
                 return self
             self.message(f"Iteration time: {time.time()-it_time}s.", log_level=2)
