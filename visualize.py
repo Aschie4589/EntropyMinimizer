@@ -1,12 +1,18 @@
-from Visualizer import *
+from classes.Visualizer import *
+from classes.Config import *
 import math 
-from matplotlib import pyplot as plt
 
-visualizer = Visualizer()
+channel_id = "RandomUnitary1"
+
+run_path = os.path.join(os.path.sep,"Users", "tdk140", "Desktop", "runs", "RandomUnitary1")
+current_path = os.path.dirname(os.path.abspath(__file__))
+
+visualizer_single = Visualizer(config=MinimizerConfig(parent_dir=current_path))
+visualizer_tensor= Visualizer(config=MinimizerConfig(parent_dir=run_path))
 
 ent = []
-visualizer.load_minimizer("CliffordChannelLowDim")
-for run_dict in visualizer.get_runs():
+visualizer_single.load_minimizer("RandomUnitary1Single")
+for run_dict in visualizer_single.get_runs():
     for run in run_dict.keys():
         ent.append(run_dict[run]) 
 
@@ -38,10 +44,13 @@ def schmidt_decomposition(vector, dimA, dimB):
     # Schmidt decomposition is columns of U and Vt (not V transpose because of how tf implements output of svd)
     return (sing_val, U, Vt)
 
+visualizer_tensor.load_minimizer(channel_id)
 
-for run_dict in visualizer.get_runs():
+for run_dict in visualizer_tensor.get_runs():
     for run in run_dict.keys():    
-        v = tf.reshape(visualizer.load_vector(run=run, snapshot=visualizer.get_snapshots(run)[-1]),[-1])
+        print(visualizer_tensor.get_snapshots(run))
+
+        v = tf.reshape(visualizer_tensor.load_vector(run=run, snapshot=visualizer_tensor.get_snapshots(run)[-1]),[-1])
         d = int(math.sqrt(v.shape[0]))
 
 

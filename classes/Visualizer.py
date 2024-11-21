@@ -1,4 +1,4 @@
-from Config import VisualizerConfig
+from classes.Config import VisualizerConfig
 import os.path
 import json
 import tensorflow as tf
@@ -13,7 +13,8 @@ class Visualizer:
         Loads the info about minimizer from the database.
         """
         # Load the JSON database
-        if not os.path.exists(self.config.minimizer_json):
+        print(self.config.minimizer_json)
+        if not os.path.isfile(self.config.minimizer_json):
             raise FileNotFoundError(f"Database not found at {self.config.minimizer_json}")        
         with open(self.config.minimizer_json, "r") as f:
             database = json.load(f)
