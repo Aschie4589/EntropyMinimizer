@@ -25,7 +25,7 @@ class EntropyMinimizer:
 
         # Configure logging for this instance of minimizer
         if self.config.log:
-            self.logger = self.setup_logger(str(self.run_id),os.path.join(self.config.log_dir,f'run_{self.run_id}.log'))
+            self.logger = self.setup_logger(str(self.id),os.path.join(self.config.log_dir,f'channel_{self.id}.log'))
 
         # Instantiate the deque that will track the last few entropies calculated. It contains tf tensors!
         self.entropy_buffer = deque(maxlen=self.config.deque_size)
@@ -41,6 +41,34 @@ class EntropyMinimizer:
         if self.config.save:
             self.save_snapshot()
         return self
+
+    def initialize_new_run(self, run_id:str="", vector=None):
+        self.run_id = run_id if run_id else str(uuid.uuid4())
+        # Re-initialize the TF minimizer vector 
+        if vector:
+            self.minimizer.vector.assign(vector)
+        else:
+            self.minimizer.vector.assign(self.minimizer.initialize_random_vectors())
+        # Re-initialize the entropy
+        self.minimizer.entropy.assign(self.minimizer.current_entropy(self.minimizer.get_projectors(self.minimizer.vector),self.minimizer.kraus_ops,self.minimizer.epsilon))
+        # Ensure the folder structure needed for saving and logging
+        self.ensure_folders([self.config.channels_dir, self.config.log_dir, self.config.snapshots_dir, self.config.vectors_dir])
+
+        # Re-instantiate the deque that will track the last few entropies calculated. It contains tf tensors!
+        self.entropy_buffer = deque(maxlen=self.config.deque_size)
+        self.entropy_buffer.append(tf.reduce_min(self.minimizer.entropy))
+
+        # Set the current step to 0.
+        self.current_step = 0
+
+        # Reset snapshots
+        self.snapshots = []
+        self.snapshots_uuids = []
+        # Save the initial configuration.
+        if self.config.save:
+            self.save_snapshot()
+        return self
+
 
     def setup_logger(self,name, log_file, level=logging.INFO):
         """To setup as many loggers as you want"""

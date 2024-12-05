@@ -25,4 +25,4 @@ nvcc -V
 
 # anaconda pytorch
 echo "python"
-python3 random_unitary.py "$@"
+python3 cluster.py "$@"

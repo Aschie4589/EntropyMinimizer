@@ -15,7 +15,7 @@ class FolderConfig:
     channels_json : str = os.path.join("save","data","channels.json") #path to save data
 
     def __post_init__(self):
-        # Turn relative paths inot absolute paths
+        # Turn relative paths into absolute paths
         self.log_dir : str = os.path.join(self.parent_dir, self.log_dir)
         self.channels_dir : str = os.path.join(self.parent_dir, self.channels_dir)
         self.vectors_dir : str = os.path.join(self.parent_dir, self.vectors_dir)
@@ -41,7 +41,7 @@ class MinimizerConfig(FolderConfig):
     # Output configuration
     verbose : bool = False
     log : bool = False
-    log_level = 1 #0 only prints essential messages like start and end of run info. 1 prints all messages.
+    log_level : int = 1 #0 only prints essential messages like start and end of run info. 1 prints all messages.
 
 
 @dataclass
