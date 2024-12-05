@@ -1,12 +1,19 @@
 from classes.Minimizer import *
 import math
 
-d=6
-N=15
+d=2
+N=5
 epsilon = 1e-9
 
 # Obtain the kraus operators for the random unitary channel
 kraus = 1/tf.sqrt(tf.cast(d, tf.complex128))*tf.linalg.qr(tf.complex(tf.random.normal([d,N,N],dtype=tf.float64),tf.random.normal([d,N,N],dtype=tf.float64)), full_matrices=True)[0]
+print(kraus)
+
+current_path = os.path.dirname(os.path.abspath(__file__))
+config = MinimizerConfig(parent_dir=current_path,verbose=True,log=False,save=False, log_level=1)
+minimizer = EntropyMinimizer(config=config)
+minimizer.initialize(kraus=kraus)
+print(tf.squeeze(minimizer.minimizer.kraus_ops, axis=[1]))
 
 
 # Compute the complementary channel applied to the maximally entangled state

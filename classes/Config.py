@@ -1,6 +1,5 @@
 from dataclasses import dataclass
 import os.path
-import inspect
 
 @dataclass 
 class FolderConfig:
@@ -42,7 +41,7 @@ class MinimizerConfig(FolderConfig):
     verbose : bool = False
     log : bool = False
     log_level : int = 1 #0 only prints essential messages like start and end of run info. 1 prints all messages.
-
+    log_entropy : int = 0 # 0, log the epsilon entropy. 1, log the est entropy. 2, log the ub on est entropy, 3, log the lb on estimated entropy.
 
 @dataclass
 class VisualizerConfig(FolderConfig):

@@ -19,9 +19,15 @@ class MinimizerModule(tf.Module):
             self.vector = tf.Variable(self.initialize_random_vectors())
         else:
             self.vector = tf.Variable(initial_value=vec_states)
-        # Initialize the entropy vector
-        self.entropy = tf.Variable(initial_value=self.current_entropy(self.get_projectors(self.vector),self.kraus_ops,self.epsilon))
 
+        # Initialize constants needed throughout
+        self.binary_entropy = tf.constant(-tf.abs(self.epsilon)*tf.math.log(tf.abs(self.epsilon))-(1-tf.abs(self.epsilon))*tf.math.log(1-tf.abs(self.epsilon)), dtype=tf.float64)
+        self.entropy_error = self.binary_entropy/(2*(1-tf.abs(self.epsilon)))
+        # Initialize the entropy vectors
+        self.entropy = tf.Variable(initial_value=self.current_entropy(self.get_projectors(self.vector),self.kraus_ops,self.epsilon))
+        self.estimated_entropy = tf.Variable(initial_value=(self.entropy - tf.abs(self.epsilon)*tf.math.log(tf.cast(self.output_dim, dtype=tf.float64)))/(tf.abs(1-self.epsilon)) - self.entropy_error)
+        self.ub_entropy = tf.Variable(initial_value=self.estimated_entropy + self.entropy_error)
+        self.lb_entropy = tf.Variable(initial_value=self.estimated_entropy - self.entropy_error)
 
     @tf.function
     def initialize_random_vectors(self):
@@ -59,7 +65,18 @@ class MinimizerModule(tf.Module):
         log_eig = tf.math.log(eig)
         return -tf.reduce_sum(eig * log_eig, axis=[-1])
 
+    @tf.function
+    def update_entropies(self, mat, kraus):
+        # Update the current entropy
+        self.entropy.assign(self.current_entropy(mat,kraus, self.epsilon))
+        # Update the estimated entropy
+        self.estimated_entropy.assign((self.entropy - tf.abs(self.epsilon)*tf.math.log(tf.cast(self.output_dim, dtype=tf.float64)))/tf.abs(1-self.epsilon) - self.entropy_error)
+        # Update the upper and lower bounds
+        self.ub_entropy.assign(self.estimated_entropy + self.entropy_error)
+        self.lb_entropy.assign(self.estimated_entropy - self.entropy_error)
+
     def step(self):
 
         self.vector.assign(self.algorithm_step(self.get_projectors(self.vector), self.kraus_ops, self.epsilon))
-        self.entropy.assign(self.current_entropy(self.get_projectors(self.vector),self.kraus_ops, self.epsilon))
+        # Update the numerical values of entropy and the related estimated quantities
+        self.update_entropies(self.get_projectors(self.vector),self.kraus_ops)

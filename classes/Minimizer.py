@@ -173,8 +173,14 @@ class EntropyMinimizer:
         self.minimizer.step()
         self.current_step += 1
 
+        # Choose the correct entropy to log based on config.
+        entropies = {0: self.minimizer.entropy,
+                      1: self.minimizer.estimated_entropy,
+                      2: self.minimizer.ub_entropy,
+                      3: self.minimizer.lb_entropy}
+
         # Find the new minimal entropy across vectors. Append to entropy buffer
-        self.entropy_buffer.append(tf.reduce_min(self.minimizer.entropy))
+        self.entropy_buffer.append(tf.reduce_min(entropies[self.config.log_entropy]))
 
         # Print updates where needed
         self.message(f"Entropy so far (iteration {self.current_step}): {tf.abs(self.entropy_buffer[-1])}",log_level=1)
