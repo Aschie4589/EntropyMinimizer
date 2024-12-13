@@ -11,24 +11,24 @@ parser = argparse.ArgumentParser(description="Run minimization of random channel
 parser.add_argument("--name", required=True, help="Channel name")
 parser.add_argument("--N",required=True, help="Size of unitaries to be sampled", type=int)
 parser.add_argument("--d",required=True, help="Number of unitaries sampled (number of Kraus operators of the channel)", type=int)
-parser.add_argument("--nosave",action="store_false", help="Include to not save the channels and take snapshots.")
-parser.add_argument("--delete_explored",action="store_true", help="Include to remove the save data (but not logs) of the attempts at minimization which produced no couterexample. Use this for large d,N and limited storage space." )
+#parser.add_argument("--nosave",action="store_false", help="Include to not save the channels and take snapshots.")
+#parser.add_argument("--delete_explored",action="store_true", help="Include to remove the save data (but not logs) of the attempts at minimization which produced no couterexample. Use this for large d,N and limited storage space." )
 parser.add_argument('--loglevel', '-l', action='count', default=1, help="Specify number of 'l' to increase log count. Default level:1.")
-parser.add_argument('--nolog', action="store_false", help="Include to disble logging.")
+#parser.add_argument('--nolog', action="store_false", help="Include to disble logging.")
 
 # Parse the command line inputs
 args = parser.parse_args()
 
 d = args.d
 N = args.N
-save = args.save
-del_explored = args.delete_explored ## TO IMPLEMENT
+#save = args.nosave
+#del_explored = args.delete_explored ## TO IMPLEMENT
 log_level = args.loglevel
-log= not args.nolog
+#log= not args.nolog
 
 # Setup the config for the MinimizerModule
 current_path = os.path.dirname(os.path.abspath(__file__))
-config = MinimizerConfig(parent_dir=current_path,verbose=False,log=log,save=save, log_level=log_level, log_entropy=1) # log_entropy=1 means we log the estimated entropy rather than the epsilon entropy...
+config = MinimizerConfig(parent_dir=current_path,verbose=False,log=True,save=True, log_level=log_level, log_entropy=1) # log_entropy=1 means we log the estimated entropy rather than the epsilon entropy...
 
 # We need some helper functions to compute the entropy of the maximally entangled state.
 

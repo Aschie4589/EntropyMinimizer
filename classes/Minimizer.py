@@ -183,7 +183,7 @@ class EntropyMinimizer:
         self.entropy_buffer.append(tf.reduce_min(entropies[self.config.log_entropy]))
 
         # Print updates where needed
-        self.message(f"Entropy so far (iteration {self.current_step}): {tf.abs(self.entropy_buffer[-1])}",log_level=1)
+        self.message(f"Entropy so far (iteration {self.current_step}): {tf.abs(self.entropy_buffer[-1])}",log_level=1, new_line=False)
 
         # Save snapshot if needed.
         if self.config.save and (self.current_step)%self.config.snapshot_interval == 0:
@@ -195,7 +195,7 @@ class EntropyMinimizer:
 
         return len(self.entropy_buffer)==self.config.deque_size and (all([abs(el) < self.config.tolerance for el in improvements]) or sum(improvements) <= 0)
 
-    def message(self, strg, log_level=0):
+    def message(self, strg, log_level=0, new_line=True):
         '''
         Log level 0: message is always logged
         Log level x: message is only logged if log level in config is at least x
@@ -205,7 +205,10 @@ class EntropyMinimizer:
             if log_level <= self.config.log_level:
                 self.logger.info(f"[Run {self.run_id}] "+strg)
         if self.config.verbose:
-            print(strg)
+            if new_line:
+                print(strg)
+            else:
+                print(strg, end="\r")
 
     def run_minimization(self):
         self.message("Starting optimization of given channel...")        
