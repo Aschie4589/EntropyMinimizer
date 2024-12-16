@@ -27,9 +27,18 @@ class FolderConfig:
 @dataclass
 class MinimizerConfig(FolderConfig):
     # Algorithm configuration
-    deque_size : int = 20 # nr of iterations to keep track of to see improvements of entropy
     tolerance : float = 1e-15
-    max_iterations : int = 100000
+    deque_size : int = 20
+    max_iterations : int = 100000      
+    entropy_to_track : int = 0 # 0: track the entropy epsilon; 1: track the estimated entropy; 2: track the upper bound on the estimated entropy; 3: track the lower bound on the estimated entropy.
+    exponential_fit_window_size = 200 # Number of samples to use for exponential fit
+    exponential_fit_Rsquared_min = 0.995 # How good the fit must be before using it to predict
+
+    # MOE finding configuration
+    MOE_attempts : int = 100 # How many times to run the algorithm to find MOE
+    MOE_use_prediction : bool = True # Discard attempts that don't look promising based on MOE prediction
+    MOE_prediction_tolerance : float = 1e-2 # How much bigger the predicted value needs to be, before discarding the attempt.
+
     # MinimizerModule configuration
     parallel_computations : int = 1
     epsilon : float = 1/10000
@@ -41,7 +50,6 @@ class MinimizerConfig(FolderConfig):
     verbose : bool = False
     log : bool = False
     log_level : int = 1 #0 only prints essential messages like start and end of run info. 1 prints all messages.
-    log_entropy : int = 0 # 0, log the epsilon entropy. 1, log the est entropy. 2, log the ub on est entropy, 3, log the lb on estimated entropy.
 
 @dataclass
 class VisualizerConfig(FolderConfig):

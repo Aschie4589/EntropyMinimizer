@@ -7,6 +7,7 @@ import os.path
 import uuid
 import json
 import logging
+import numpy as np
 
 class EntropyMinimizer:
 
@@ -27,20 +28,38 @@ class EntropyMinimizer:
         if self.config.log:
             self.logger = self.setup_logger(str(self.id),os.path.join(self.config.log_dir,f'channel_{self.id}.log'))
 
+        # Define the entropy to track
+        self.entropy_to_track = {0: self.minimizer.entropy,
+                      1: self.minimizer.estimated_entropy,
+                      2: self.minimizer.ub_entropy,
+                      3: self.minimizer.lb_entropy}[self.config.entropy_to_track]
+
         # Instantiate the deque that will track the last few entropies calculated. It contains tf tensors!
-        self.entropy_buffer = deque(maxlen=self.config.deque_size)
-        self.entropy_buffer.append(tf.reduce_min(self.minimizer.entropy))
+        self.entropy_buffer = deque(maxlen=self.config.deque_size) 
+        self.entropy_buffer.append(tf.reduce_min(self.entropy_to_track))
+
+        # Numpy array of entropy improvements, used to fit exponential convergence and predict final value
+        self.ln_entropy_improvements = np.empty((0,))
+        self.window_size = self.config.exponential_fit_window_size
+        self.predicted_entropy = 0
+        self.predicted_steps = -1
 
         # Set the current step to 0.
         self.current_step = 0
 
+        # Initialize the MOE:
+        self.MOE = None
+
         # Snapshots keeps track of vector states throughout the minimization procedure
         self.snapshots = []
         self.snapshots_uuids = []
+
         # Save the initial configuration.
         if self.config.save:
             self.save_snapshot()
         return self
+
+
 
     def initialize_new_run(self, run_id:str="", vector=None):
         self.run_id = run_id if run_id else str(uuid.uuid4())
@@ -49,14 +68,20 @@ class EntropyMinimizer:
             self.minimizer.vector.assign(vector)
         else:
             self.minimizer.vector.assign(self.minimizer.initialize_random_vectors())
-        # Re-initialize the entropy
-        self.minimizer.entropy.assign(self.minimizer.current_entropy(self.minimizer.get_projectors(self.minimizer.vector),self.minimizer.kraus_ops,self.minimizer.epsilon))
+        # Re-initialize the entropies
+        self.minimizer.update_entropies(self.minimizer.get_projectors(self.minimizer.vector),self.minimizer.kraus_ops)
         # Ensure the folder structure needed for saving and logging
         self.ensure_folders([self.config.channels_dir, self.config.log_dir, self.config.snapshots_dir, self.config.vectors_dir])
 
         # Re-instantiate the deque that will track the last few entropies calculated. It contains tf tensors!
         self.entropy_buffer = deque(maxlen=self.config.deque_size)
-        self.entropy_buffer.append(tf.reduce_min(self.minimizer.entropy))
+        self.entropy_buffer.append(tf.reduce_min(self.entropy_to_track))
+
+        # Reset the entropy predictions
+        self.ln_improvements = np.empty((0,))
+        self.window_size = self.config.exponential_fit_window_size
+        self.predicted_entropy = 0
+        self.predicted_steps = -1
 
         # Set the current step to 0.
         self.current_step = 0
@@ -69,7 +94,6 @@ class EntropyMinimizer:
             self.save_snapshot()
         return self
 
-
     def setup_logger(self,name, log_file, level=logging.INFO):
         """To setup as many loggers as you want"""
         handler = logging.FileHandler(log_file)        
@@ -79,8 +103,6 @@ class EntropyMinimizer:
         logger.addHandler(handler)
 
         return logger
-
-
 
     def ensure_folders(self, folder_paths):
         for folder in folder_paths:
@@ -173,15 +195,10 @@ class EntropyMinimizer:
         self.minimizer.step()
         self.current_step += 1
 
-        # Choose the correct entropy to log based on config.
-        entropies = {0: self.minimizer.entropy,
-                      1: self.minimizer.estimated_entropy,
-                      2: self.minimizer.ub_entropy,
-                      3: self.minimizer.lb_entropy}
-
         # Find the new minimal entropy across vectors. Append to entropy buffer
-        self.entropy_buffer.append(tf.reduce_min(entropies[self.config.log_entropy]))
-
+        self.entropy_buffer.append(tf.reduce_min(self.entropy_to_track))
+        # Calculate the entropy improvement, and append to improvement list
+        self.ln_entropy_improvements = np.append(self.ln_entropy_improvements,[tf.math.log(self.entropy_buffer[-2]-self.entropy_buffer[-1]).numpy()]) # positive quantity
         # Print updates where needed
         self.message(f"Entropy so far (iteration {self.current_step}): {tf.abs(self.entropy_buffer[-1])}",log_level=1, new_line=False)
 
@@ -194,6 +211,73 @@ class EntropyMinimizer:
         improvements = [self.entropy_buffer[i] - self.entropy_buffer[i + 1] for i in range(len(self.entropy_buffer) - 1)]
 
         return len(self.entropy_buffer)==self.config.deque_size and (all([abs(el) < self.config.tolerance for el in improvements]) or sum(improvements) <= 0)
+
+    def predict_final_entropy(self):
+        def linear_fit_qr(x_arr, y_arr):
+            """
+            Perform linear regression using QR decomposition for the case where X is a range.
+            
+            Parameters:
+            - X: The input 1D array of shape (n_samples,)
+            - y: The target vector of shape (n_samples,)
+            
+            Returns:
+            - coeff: The coefficients of the linear model (intercept and slope).
+            """
+            # Convert X to a 2D column vector (n_samples, 1)
+            X_augmented = np.column_stack([np.ones(x_arr.shape[0]), x_arr])
+            
+            # Perform QR decomposition on the augmented matrix
+            Q, R = np.linalg.qr(X_augmented)
+            
+            # Compute the coefficients: R^-1 * Q^T * y
+            coeff = np.linalg.inv(R) @ Q.T @ y_arr
+            
+            return coeff
+        def r_squared(X, y, coeff):
+            """
+            Calculate the R-squared (R²) value for the linear regression model.
+            
+            Parameters:
+            - X: The input array of shape (n_samples,)
+            - y: The target array of shape (n_samples,)
+            - coeff: The coefficients of the linear model (intercept and slope).
+            
+            Returns:
+            - r2: The R-squared value.
+            """            
+            # Predicted values from the model
+            y_pred = coeff[0] + coeff[1] * X
+            
+            # Total Sum of Squares (TSS)
+            y_mean = np.mean(y)
+            tss = np.sum((y - y_mean)**2)
+            
+            # Residual Sum of Squares (RSS)
+            rss = np.sum((y - y_pred)**2)
+            
+            # R-squared
+            r2 = 1 - (rss / tss)
+            return r2
+        l = len(self.ln_entropy_improvements)
+        # Check that enough data points have been gathered
+        if l >= self.window_size:
+            window = self.ln_entropy_improvements[-self.window_size:]
+            indices = np.arange(l+1-self.window_size,l+1)
+            # Perform linear fit
+            coeffs = linear_fit_qr(indices,window)
+            rsquared = r_squared(indices, window, coeffs)
+            # If fit is good and decreasing:
+            if coeffs[1]<0 and rsquared > self.config.exponential_fit_Rsquared_min:
+                # Predict entropy
+                entropy_est_improvement = tf.math.exp(window[-1]) * tf.math.exp(coeffs[1])/(1-tf.math.exp(coeffs[1]))
+                self.predicted_entropy = (self.entropy_buffer[-1]-entropy_est_improvement).numpy()
+                # Predict total steps
+                self.predicted_steps = int(((tf.math.log(self.config.tolerance)-coeffs[0])/coeffs[1]).numpy())
+                # Update window size for more accurate prediction (? this is heuristics right now)
+                self.window_size = int(9/10*self.window_size+1/10*1/6*(tf.math.log(self.config.tolerance)-coeffs[0])/coeffs[1])
+                return True
+            return False
 
     def message(self, strg, log_level=0, new_line=True):
         '''
@@ -208,7 +292,7 @@ class EntropyMinimizer:
             if new_line:
                 print(strg)
             else:
-                print(strg, end="\r")
+                print(strg)
 
     def run_minimization(self):
         self.message("Starting optimization of given channel...")        
@@ -232,3 +316,34 @@ class EntropyMinimizer:
                     self.save_snapshot()
                 return self
             self.message(f"Iteration time: {time.time()-it_time}s.", log_level=2)
+
+    def find_MOE(self):
+        self.message(f"Will try to find MOE. Running {self.config.MOE_attempts} minimization attempts.")
+        for attempt in range(1,self.config.MOE_attempts+1):
+            self.message(f"Initializing minimization attempt {attempt} of {self.config.MOE_attempts}.")
+            self.initialize_new_run() # use random id.
+            self.message("Starting minimization.")                
+            # Perform minimization.
+            for _ in range(self.config.max_iterations):
+                # Step throuhg the minimization algorithm
+                finished = self.step_minimization()
+                # Update MOE if necessary
+                if not self.MOE or self.MOE > self.entropy_buffer[-1]:
+                    self.MOE = self.entropy_buffer[-1]
+                self.message(f"Current MOE: {self.MOE}")
+                # If there is no significant improvement in the entropy, end the attempt.
+                if finished:
+                    self.message(f"Algorithm converged. Minimal entropy is: {self.entropy_buffer[-1]} with tolerance {self.config.tolerance}.")
+                    if self.config.save:
+                        self.save_snapshot()
+                    break
+                # Make prediction of final entropy
+                if self.config.MOE_use_prediction:
+                    if self.predict_final_entropy():
+                        self.message(f"Predicted final entropy: {self.predicted_entropy} in {self.predicted_steps} iterations.")
+                        # If MOE is much smaller than prediction, discard attempt!
+                        if self.MOE and self.predicted_entropy - self.MOE > self.config.MOE_prediction_tolerance:
+                            self.message(f"Predicted entropy is much larger than current MOE: {self.MOE}, ending the minimization attempt...")
+                            break
+            self.message(f"Finished attempt {attempt} at minimization. Current MOE: {self.MOE}")
+        self.message(f"I have run the algorithm enough times. Final MOE is: {self.MOE}")
