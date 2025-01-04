@@ -1,22 +1,52 @@
 from classes.Minimizer import *
 import math
+import argparse
+'''
+For fixed dimension of the Hilbert space N, generate a graph (for as long as it is possible) of Delta S, defined for variable d as follows.
 
-d=2
-N=5
-epsilon = 1e-9
+- Construct a random unitary channel with d haar random unitaries. 
+- Compute the entropy of the tensor channel Phi(x)Phibar when applied to the maximally entangled state. 
+- Compute the minimal output entropy of the single channel Phi, then subtract it twice from the double channel entropy.
+- If Delta S is negative, we have (possible) violation of MOE.
 
-# Obtain the kraus operators for the random unitary channel
-kraus = 1/tf.sqrt(tf.cast(d, tf.complex128))*tf.linalg.qr(tf.complex(tf.random.normal([d,N,N],dtype=tf.float64),tf.random.normal([d,N,N],dtype=tf.float64)), full_matrices=True)[0]
-print(kraus)
+We are interested in understanding what size of d would be necessary to (if at all) obtain violation of MOE.
+'''
+# Set-up argument parsing for command line execution
+parser = argparse.ArgumentParser(description="Run minimization of random channels to find violation of MOE additivity")
+parser.add_argument("--name", required=False, help="Channel name")
+parser.add_argument("--N",required=False, help="Size of unitaries to be sampled", type=int)
+parser.add_argument("--dmax",required=False, help="Max number of unitaries sampled (number of Kraus operators of the channel)", type=int)
+parser.add_argument('--loglevel', '-l', action='count', default=1, help="Specify number of 'l' to increase log count. Default level:1.")
+p = psutil.Process(os.getpid())
 
+# Parse the command line inputs
+args = parser.parse_args()
+
+if args.dmax:
+    dmax = args.dmax
+if args.N:
+    N = args.N
+if args.loglevel:
+    log_level = args.loglevel
+if args.name:
+    channel_name=args.name
+
+
+# TODO: remove when deploying!
+dmax=24
+N=1000
+log_level=1
+channel_name = "random_unitary"
+minimization_attempts = 250
+
+
+# Setup the config for the MinimizerModule
 current_path = os.path.dirname(os.path.abspath(__file__))
-config = MinimizerConfig(parent_dir=current_path,verbose=True,log=False,save=False, log_level=1)
-minimizer = EntropyMinimizer(config=config)
-minimizer.initialize(kraus=kraus)
-print(tf.squeeze(minimizer.minimizer.kraus_ops, axis=[1]))
+config = MinimizerConfig(parent_dir=current_path,verbose=True,log=False,save=False, log_level=log_level, entropy_to_track=1,tolerance=1e-15) # log_entropy=1 means we log the estimated entropy rather than the epsilon entropy...
 
+# We need some helper functions to compute the entropy of the maximally entangled state.
 
-# Compute the complementary channel applied to the maximally entangled state
+# 1. Compute the complementary channel applied to the maximally entangled state
 def complementary_channel(kraus):
     k, N, _ = kraus.shape
     
@@ -33,11 +63,7 @@ def complementary_channel(kraus):
     
     return result
 
-# This is the matrix Phi^C(|omega><omega|), where |omega> is the maximally entangled state sqrt(N)^{-1}\sum_i|ii>.
-out = complementary_channel(kraus)
-
-# This function takes the output of the channel, and computes the entropy of the corresponding epsilon channel:
-# Phi_epsilon(rho) = (1-epsilon)Phi(rho) + epsilon Tr[rho]/dim.
+# 2. Compute the entropy of rho_epsilon, where rho_epsilon = (1-epsilon)rho+ epsilon Tr[rho]/dim.
 def von_neumann_entropy(rho, epsilon):
     N = rho.shape[-1]
     # Compute eigenvalues of the density matrix
@@ -50,7 +76,7 @@ def von_neumann_entropy(rho, epsilon):
     entropy = -tf.reduce_sum(eigenvalues * tf.math.log(eigenvalues))
     return entropy
 
-# This function takes care of updating the guess for the entropy of the actual channel, and provides the range and maximum error as well.
+# 3. Estimate the entropy of rho from that of rho_epsilon.
 def estimate_vn_entropy(rho, epsilon):
     N = rho.shape[-1]
     calc_entropy = von_neumann_entropy(rho,epsilon)
@@ -60,13 +86,51 @@ def estimate_vn_entropy(rho, epsilon):
     error = binentropy/(2*(1-epsilon))
 
     return estimate, range, error
-                        
 
-est = estimate_vn_entropy(out, 1e-12)
-upper_bound_entangled_entropy = est[1][1].numpy()
 
-#print(f"Estimated vn entropy is: {est[0].numpy()}, range is [{est[1][0].numpy()}, {est[1][1].numpy()}]")
-print(f"The entropy is for sure lower than: {upper_bound_entangled_entropy}")
-print(f"The channel has to do better than this: {upper_bound_entangled_entropy/2}")
-print(f"For comparison, this is the value used before: {(1-1/(d*2))*math.log(d)}")
+# Generate a random unitary. Compute MOE of channel, add DeltaS datapoint and then generate new unitary.
+def haar_random_unitary(d):
+    z = tf.complex(tf.random.normal([d, d], dtype=tf.float64), tf.random.normal([d, d], dtype=tf.float64))
+    q, _ = tf.linalg.qr(z)
+    return q
+
+
+# Setup the kraus operators, starting with just one single unitary.
+kraus = tf.expand_dims(haar_random_unitary(N), axis=[0])
+
+DeltaS = []
+# Now add new unitaries one at the time.
+for d in range(2,dmax+1):
+    if d>1:
+        print(d)
+        #Append one unitary, then rescale so the channel is still TP.
+        kraus = 1/tf.sqrt(tf.cast(d, tf.complex128))*tf.concat([tf.sqrt(tf.cast(d-1, tf.complex128))*kraus, tf.expand_dims(haar_random_unitary(N),axis=[0])],axis=0)
+        #Check that you are TP: print(tf.einsum("ijk,ikl->jl", kraus, tf.linalg.adjoint(kraus))) # Should get identity matrix
+    # Calculate Delta= entropy_tensor_channel - 2*MOE_single_channel
+    if d == dmax:
+        # 1. Get the entropy of the tensor channel
+        est_entropy_max_entangled = estimate_vn_entropy(complementary_channel(kraus),1e-9)
+        entropy_tensor_channel = tf.squeeze(est_entropy_max_entangled[1][1]).numpy()
+
+        # 2. Get MOE of the single channel
+        channel_id = f"{channel_name}_d_{d}"
+
+        minimizer = EntropyMinimizer(config=config)
+        minimizer.initialize(kraus, id=channel_id)
+        minimizer.message(f"Generated the channel with d={d} unitaries. Performing minimization...")
+        with p.oneshot():
+        #    print("RSS memory in use:",p.memory_full_info().rss,"bytes")
+            print("RSS memory in use:",p.memory_full_info().rss/1024/1024,"MB")
+
+        minimizer.find_MOE()
+        with p.oneshot():
+        #    print("RSS memory in use:",p.memory_full_info().rss,"bytes")
+            print("RSS memory in use:",p.memory_full_info().rss/1024/1024,"MB")
+
+        # 4. Append the new delta entropy to the list.
+        DeltaS.append((entropy_tensor_channel-2*minimizer.MOE).numpy())
+        minimizer.message(f"Current Delta entropies are: {str(DeltaS)}")
+
+#  At the end of everything, save the kraus operators for repeatability.
+minimizer.save_kraus()
 

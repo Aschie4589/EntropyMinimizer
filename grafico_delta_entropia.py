@@ -33,16 +33,15 @@ if args.name:
 
 
 # TODO: remove when deploying!
-dmax=6
-N=15
-log_level=1
-channel_name = "random_unitary"
-minimization_attempts = 100
+#dmax=10
+#N=15
+#log_level=1
+#channel_name = "random_unitary"
 
 
 # Setup the config for the MinimizerModule
 current_path = os.path.dirname(os.path.abspath(__file__))
-config = MinimizerConfig(parent_dir=current_path,verbose=True,log=False,save=False, log_level=log_level, log_entropy=1,tolerance=1e-12) # log_entropy=1 means we log the estimated entropy rather than the epsilon entropy...
+config = MinimizerConfig(parent_dir=current_path,verbose=False,log=True,save=False, log_level=log_level, entropy_to_track=1,tolerance=1e-15) # log_entropy=1 means we log the estimated entropy rather than the epsilon entropy...
 
 # We need some helper functions to compute the entropy of the maximally entangled state.
 
@@ -97,9 +96,10 @@ def haar_random_unitary(d):
 
 # Setup the kraus operators, starting with just one single unitary.
 kraus = tf.expand_dims(haar_random_unitary(N), axis=[0])
+
 DeltaS = []
 # Now add new unitaries one at the time.
-for d in range(1,dmax+1):
+for d in range(2,dmax+1):
     if d>1:
         #Append one unitary, then rescale so the channel is still TP.
         kraus = 1/tf.sqrt(tf.cast(d, tf.complex128))*tf.concat([tf.sqrt(tf.cast(d-1, tf.complex128))*kraus, tf.expand_dims(haar_random_unitary(N),axis=[0])],axis=0)
@@ -112,67 +112,17 @@ for d in range(1,dmax+1):
 
     # 2. Get MOE of the single channel
     channel_id = f"{channel_name}_d_{d}"
-    run_id = f"{channel_id}-1"
 
     minimizer = EntropyMinimizer(config=config)
-    minimizer.initialize(kraus, id=channel_id, run_id=run_id)
+    minimizer.initialize(kraus, id=channel_id)
     minimizer.message(f"Generated the channel with d={d} unitaries. Performing minimization...")
 
-    entropies = []
-    for attempt in range(1,minimization_attempts+1):
-        minimizer.initialize_new_run(run_id = f"{channel_id}-{attempt}")
-        minimizer.message(f"Starting minimization attempt {attempt}.")
-        minimizer.run_minimization()
-        entropies.append(minimizer.minimizer.lb_entropy.numpy()[0]) # Use the lower bound on the interval of MOE...
+    minimizer.find_MOE()
 
-    MOE_single_channel = min(entropies)
     # 4. Append the new delta entropy to the list.
-    DeltaS.append(entropy_tensor_channel-2*MOE_single_channel)
+    DeltaS.append((entropy_tensor_channel-2*minimizer.MOE).numpy())
     minimizer.message(f"Current Delta entropies are: {str(DeltaS)}")
 
 #  At the end of everything, save the kraus operators for repeatability.
-#minimizer.save_kraus()
+minimizer.save_kraus()
 
-while False:
-    # Perform iteration over many different random channels
-    for i in range(1,1000):
-        # Load or generate the new channel
-        channel_id = f"{args.name}{i}"
-        run_id = f"{channel_id}-1"
-        minimizer = EntropyMinimizer(config=config)
-        try: 
-            minimizer.initialize_from_save(channel_id,run_id=run_id)
-            kraus = tf.squeeze(minimizer.minimizer.kraus_ops, axis=[1])
-            minimizer.message(f"Loaded channel with id {channel_id}")
-
-        except FileNotFoundError:
-            kraus = 1/tf.sqrt(tf.cast(d, tf.complex128))*tf.linalg.qr(tf.complex(tf.random.normal([d,N,N],dtype=tf.float64),tf.random.normal([d,N,N],dtype=tf.float64)), full_matrices=True)[0]
-            minimizer.initialize(kraus, id=channel_id, run_id=run_id)
-            minimizer.message(f"Couldn't find a channel with id {channel_id}, will generate a new random channel...")
-            minimizer.save_kraus()
-            minimizer.message("Done!")
-
-        # Obtain an upper bound on MOE of the double channel by finding the entropy of the maximally entangled state
-        est_entropy_max_entangled = estimate_vn_entropy(complementary_channel(kraus),1e-9)
-        threshold_entropy = tf.squeeze(est_entropy_max_entangled[1][1]).numpy()/2
-        minimizer.message(f"The threshold value for the entropy is {threshold_entropy}, which is the computed UB on the entropy of the maximally entangled state.")
-        minimizer.message(f"This is lower than (2-1/d)*math.log(d)/2={(2-1/d)*math.log(d)/2} by {(2-1/d)*math.log(d)/2-threshold_entropy}!")
-        violation = False
-
-        # Run entropy minimization a fixed number of times. If the single channel entropy is lower than the threshold entropy, discard the attempt.
-        for attempt in range(1,101):
-            if not violation:
-                minimizer.initialize_new_run(run_id = f"{channel_id}-{attempt}")
-                minimizer.message(f"Starting minimization attempt {attempt}.")
-                while not minimizer.step_minimization():
-                    # Use the lower bound on the estimate of the entropy and compare to threshold level.
-                    if minimizer.minimizer.lb_entropy.numpy()[0] < threshold_entropy:
-                        minimizer.message(f"Attempt {attempt} at minimization: we have reached the threshold for entropy lower bound: {minimizer.minimizer.lb_entropy.numpy()[0]} less than {threshold_entropy}")
-                        violation = True
-                        break
-                minimizer.message(f"Finished attempt {attempt}.")
-        if violation:
-            minimizer.message(f"Found a vector of low entropy. Violation of additivity of MOE is unlikely!")
-        # If the entropy keeps being larger than the threshold entropy, this is a good sign!
-        if not violation:
-            minimizer.message("Could not find a vector of low entropy. This warrants further investigation!")

@@ -6,7 +6,7 @@
 #SBATCH --job-name=ent_tommaso           # Job name (do not include spaces)
 #SBATCH --mail-type=NONE                     # Mail events (NONE, BEGIN, END, FAIL, ALL)
 #SBATCH --mem=50gb                           # Job memory request
-#SBATCH --time=12:00:00                      # Time limit hrs:min:sec
+#SBATCH --time=240:00:00                      # Time limit hrs:min:sec
 #SBATCH --output=test_%j.log               # Standard output and error log
 
 # Create and activate virtual environment (if not already done)
@@ -25,4 +25,4 @@ nvcc -V
 
 # anaconda pytorch
 echo "python"
-python3 cluster.py "$@"
+python3 grafico_delta_entropia.py "$@"

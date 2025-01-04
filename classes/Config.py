@@ -42,6 +42,7 @@ class MinimizerConfig(FolderConfig):
     # MinimizerModule configuration
     parallel_computations : int = 1
     epsilon : float = 1/10000
+
     # Saving configuration
     save : bool = False # If false, no snapshot is taken and the database is not updated.
     snapshot_interval : int = 20 # after how many iterations to save the current best vector
@@ -50,6 +51,11 @@ class MinimizerConfig(FolderConfig):
     verbose : bool = False
     log : bool = False
     log_level : int = 1 #0 only prints essential messages like start and end of run info. 1 prints all messages.
+
+    # Resource usage tracking
+    track_resources : bool = True
+    resource_tracking_log_level : int = 1
+    resource_tracking_interval : int = 5
 
 @dataclass
 class VisualizerConfig(FolderConfig):

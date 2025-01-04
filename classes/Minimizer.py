@@ -3,12 +3,12 @@ from classes.Config import *
 import tensorflow as tf
 import time
 from collections import deque
-import os.path
 import uuid
 import json
 import logging
 import numpy as np
-
+import psutil
+import os
 class EntropyMinimizer:
 
     def __init__(self, config:MinimizerConfig=MinimizerConfig()):
@@ -53,6 +53,12 @@ class EntropyMinimizer:
         # Snapshots keeps track of vector states throughout the minimization procedure
         self.snapshots = []
         self.snapshots_uuids = []
+
+        # If enabled, start keeping track of resource usage
+        if self.config.track_resources:
+            if self.config.log:
+                self.res_logger = self.setup_logger(str(self.id)+"res",os.path.join(self.config.log_dir,f'resources_{self.id}.log'))
+            self.process = psutil.Process(os.getpid())
 
         # Save the initial configuration.
         if self.config.save:
@@ -207,6 +213,10 @@ class EntropyMinimizer:
             self.save_snapshot()
             self.message(f"Snapshot taken. Entropy so far (iteration {self.current_step}): {tf.abs(self.entropy_buffer[-1])}",log_level=1)
 
+        # Log resources if needed.
+        if self.config.track_resources and (self.current_step)%self.config.resource_tracking_interval == 0:
+            self.log_resources()
+
         # Compute improvements. We need to stop if they all are small, or if the average is zero or less.
         improvements = [self.entropy_buffer[i] - self.entropy_buffer[i + 1] for i in range(len(self.entropy_buffer) - 1)]
 
@@ -294,6 +304,22 @@ class EntropyMinimizer:
             else:
                 print(strg)
 
+    def log_resources(self):
+        with self.process.oneshot():
+        #    print("RSS memory in use:",p.memory_full_info().rss,"bytes")
+            if self.config.log:
+                # Log the message if the level of logging in config is at least the log_level specified.
+                if self.config.resource_tracking_log_level <= self.config.log_level:
+                    self.res_logger.info(f"[Run {self.run_id}] "+"RSS memory in use: "+str(self.process.memory_full_info().rss/1024/1024)+" MB")  
+                    self.res_logger.info(f"[Run {self.run_id}] "+"Virtual memory in use: "+str(self.process.memory_full_info().vms/1024/1024)+" MB")  
+                    self.res_logger.info(f"[Run {self.run_id}] "+"CPU usage: "+str(self.process.cpu_percent())+"%")  
+                                      
+            if self.config.verbose:
+                print("RSS memory in use:",self.process.memory_full_info().rss/1024/1024,"MB")
+                print("Virtual memory in use:",self.process.memory_full_info().vms/1024/1024,"MB")
+                print("CPU usage:",self.process.cpu_percent(),"%")
+
+
     def run_minimization(self):
         self.message("Starting optimization of given channel...")        
         
@@ -318,6 +344,13 @@ class EntropyMinimizer:
             self.message(f"Iteration time: {time.time()-it_time}s.", log_level=2)
 
     def find_MOE(self):
+        '''
+        TODO: to make it more efficient, maybe run each minimization only a certain number of times, then save the vector and the entropy. 
+        Use the prediction to find the one which is most likely to produce a minimum, and run it to the end.
+        Do this at the beginning in order to start from a good candidate.
+        Then, run more attempts and proceed as we do now.
+        Would this speed up the process?
+        '''
         self.message(f"Will try to find MOE. Running {self.config.MOE_attempts} minimization attempts.")
         for attempt in range(1,self.config.MOE_attempts+1):
             self.message(f"Initializing minimization attempt {attempt} of {self.config.MOE_attempts}.")
